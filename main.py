@@ -851,7 +851,7 @@ Welcome {user.first_name}!
             return
         
         app = Application.builder().token(self.token).build()
-        asyncio.get_event_loop().run_until_complete(self.setup_commands(app))
+        asyncio.run(self.setup_commands(app))
         
         # All handlers
         app.add_handler(CommandHandler("start", self.start))
