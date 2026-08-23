@@ -183,11 +183,14 @@ class InstagramAPI:
             report_code = self.report_reasons.get(reason, {}).get('code', 'spam')
             
             data = {
-                'reason': report_code,
-                'source_name': 'profile',
-                'is_spam': 'true' if report_code == 'spam' else 'false',
-                'original_report': 'false'
-            }
+    'reason': report_code,
+    'source_name': 'profile',
+    'is_spam': 'true' if report_code == 'spam' else 'false',
+    'original_report': 'false',
+    'report_type': 'profile',
+    'report_source': 'profile_menu',
+    'should_send_response': 'true'
+}
             
             # Send report
             response = session.post(url, headers=headers, data=data)
