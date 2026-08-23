@@ -47,7 +47,7 @@ WAITING_FOR_PROXY = 5
 class InstagramReportBot:
     def __init__(self):
         self.token = os.getenv('TELEGRAM_BOT_TOKEN')
-        self.admin_id = int(os.getenv('ADMIN_USER_ID', '0'))
+        self.admin_id = int(os.getenv('8170807285', '0'))
         self.db = Database()
         self.report_engine = ReportEngine(self.db)
         self.user_states = {}
