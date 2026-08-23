@@ -50,7 +50,7 @@ class ReportEngine:
         available_accounts = []
         for account in accounts:
             if account['reports_today'] < account['max_daily_reports']:
-                if account['health_score'] >= 50:
+                if account['health_score'] >= 5:
                     available_accounts.append(account)
         
         if not available_accounts:
@@ -70,7 +70,7 @@ class ReportEngine:
         for i, account in enumerate(selected_accounts):
             try:
                 # Human-like delay
-                await asyncio.sleep(random.uniform(5, 20))
+                await asyncio.sleep(random.uniform(1, 1.5))
                 
                 # Login to Instagram
                 session_data = self.api.login(
@@ -109,7 +109,7 @@ class ReportEngine:
                 
                 # Delay between accounts (avoid detection)
                 if i < len(selected_accounts) - 1:
-                    inter_delay = random.uniform(30, 60)
+                    inter_delay = random.uniform(2, 5)
                     logger.info(f"Waiting {inter_delay:.1f}s before next account...")
                     await asyncio.sleep(inter_delay)
                 
