@@ -22,6 +22,10 @@ from telegram.constants import ParseMode
 
 from database import Database
 from report_engine import ReportEngine
+from plugins.account_manager import AccountManager
+from plugins.credit_system import CreditSystem
+from plugins.referral_system import ReferralSystem
+from plugins.channel_force import ChannelForce
 
 # Load environment variables
 load_dotenv()
@@ -50,6 +54,10 @@ class InstagramReportBot:
         self.admin_id = int(os.getenv('8170807285', '0'))
         self.db = Database()
         self.report_engine = ReportEngine(self.db)
+        self.account_manager = AccountManager(self.db)
+self.credit_system = CreditSystem()
+self.referral_system = ReferralSystem(self.credit_system, "@Instatounfollow_bot)
+self.channel_force = ChannelForce()
         self.user_states = {}
         self.report_reasons = {
             'spam': '🚫 Spam',
@@ -785,6 +793,14 @@ I can help you report Instagram accounts that violate policies.
         
         # Add handlers
         app.add_handler(CommandHandler("start", self.start))
+        app.add_handler(CommandHandler("add", self.add_account_command))
+        app.add_handler(CommandHandler("removeacc", self.remove_account_command))
+        app.add_handler(CommandHandler("myacc", self.list_accounts_command))
+        app.add_handler(CommandHandler("credits", self.credits_command))
+        app.add_handler(CommandHandler("givecredits", self.give_credits_command))
+        app.add_handler(CommandHandler("removecredits", self.remove_credits_command))
+        app.add_handler(CommandHandler("referral", self.referral_command))
+        app.add_handler(CommandHandler("channel", self.channel_command))
         app.add_handler(CommandHandler("help", self.help_command))
         app.add_handler(CommandHandler("status", self.status_command))
         app.add_handler(CommandHandler("report", self.report_command))
