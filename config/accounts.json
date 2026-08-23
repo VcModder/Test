@@ -1,12 +1,12 @@
 [
     {
-        "username": "your_instagram_username_1",
-        "password": "your_instagram_password_1",
+        "username": "monsxter1838",
+        "password": "Monxter1838",
         "proxy": "",
         "is_active": true,
         "health_score": 100,
         "reports_today": 0,
-        "max_daily_reports": 5,
+        "max_daily_reports": 100,
         "total_reports": 0,
         "last_report_time": null,
         "consecutive_failures": 0
