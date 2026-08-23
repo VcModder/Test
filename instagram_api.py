@@ -25,16 +25,28 @@ class InstagramAPI:
         self.base_url = 'https://www.instagram.com/api/v1'
         self.sessions = {}
         self.report_reasons = {
-            'spam': {'code': 'spam', 'label': 'Spam'},
-            'fake_profile': {'code': 'impersonation', 'label': 'Fake Profile'},
-            'harassment': {'code': 'harassment', 'label': 'Harassment/Bullying'},
-            'violence': {'code': 'violence', 'label': 'Violence'},
-            'scam': {'code': 'scam', 'label': 'Scam/Fraud'},
-            'nudity': {'code': 'nudity', 'label': 'Nudity'},
-            'drugs': {'code': 'drugs', 'label': 'Drugs'},
-            'hate_speech': {'code': 'hate_speech', 'label': 'Hate Speech'},
-            'copyright': {'code': 'copyright', 'label': 'Copyright'},
-            'underage': {'code': 'underage', 'label': 'Underage'}
+    'spam': {'code': 'spam', 'label': 'Spam'},
+    'fake_profile': {'code': 'impersonation', 'label': 'Fake Profile'},
+    'impersonation': {'code': 'impersonation', 'label': 'Impersonation'},
+    'harassment': {'code': 'harassment', 'label': 'Harassment/Bullying'},
+    'bullying': {'code': 'bullying', 'label': 'Bullying'},
+    'threats': {'code': 'threats', 'label': 'Threats'},
+    'violence': {'code': 'violence', 'label': 'Violence'},
+    'dangerous_org': {'code': 'dangerous_organizations', 'label': 'Dangerous Organizations'},
+    'weapons': {'code': 'weapons', 'label': 'Weapons Sale'},
+    'scam': {'code': 'scam', 'label': 'Scam/Fraud'},
+    'fraud': {'code': 'fraud', 'label': 'Fraud'},
+    'phishing': {'code': 'phishing', 'label': 'Phishing'},
+    'nudity': {'code': 'nudity', 'label': 'Nudity'},
+    'sexual_content': {'code': 'sexual_content', 'label': 'Sexual Content'},
+    'drugs': {'code': 'drugs', 'label': 'Drugs'},
+    'hate_speech': {'code': 'hate_speech', 'label': 'Hate Speech'},
+    'race_hate': {'code': 'race_hate', 'label': 'Racial Hate'},
+    'religion_hate': {'code': 'religion_hate', 'label': 'Religious Hate'},
+    'copyright': {'code': 'copyright', 'label': 'Copyright'},
+    'underage': {'code': 'underage', 'label': 'Underage'},
+    'self_harm': {'code': 'self_harm', 'label': 'Self Harm'},
+    'terrorism': {'code': 'terrorism', 'label': 'Terrorism'}
         }
     
     def login(self, username: str, password: str, proxy: Optional[str] = None) -> Optional[Dict]:
