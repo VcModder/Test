@@ -328,6 +328,10 @@ Welcome {user.first_name}!
     
     async def process_report(self, query, target_url: str, reason: str, user_id: int):
         """Process report"""
+        stop_animation = asyncio.Event()
+        animation_task = asyncio.create_task(
+            self.animate_processing(query, target_url, reason, stop_animation)
+        )
         try:
             result = await self.report_engine.execute_report(target_url, reason, user_id)
             
@@ -355,10 +359,45 @@ Welcome {user.first_name}!
                 )
         except Exception as e:
             self.credit_system.add_credits(user_id, 4, "Refund - Error")
+            logger.exception("Unexpected report error for user %s", user_id)
             try:
-                await query.edit_message_text(f"❌ Error: {str(e)}")
-            except:
+                await query.edit_message_text(
+                    "❌ *Report Error*\n\n"
+                    f"`{str(e)}`\n\n"
+                    "Credits refunded: 4",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            except Exception:
                 pass
+        finally:
+            stop_animation.set()
+            animation_task.cancel()
+            try:
+                await animation_task
+            except asyncio.CancelledError:
+                pass
+
+    async def animate_processing(self, query, target_url: str, reason: str, stop_event: asyncio.Event):
+        """Show lightweight progress feedback while a report is running."""
+        frames = ["⏳", "⌛", "🔄"]
+        index = 0
+        while not stop_event.is_set():
+            try:
+                await query.edit_message_text(
+                    f"{frames[index % len(frames)]} *Processing report...*\n\n"
+                    f"Target: `{target_url}`\n"
+                    f"Reason: {reason}\n\n"
+                    "Please wait while the report is submitted.",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            except Exception:
+                logger.debug("Could not update report progress message", exc_info=True)
+                return
+            index += 1
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=0.9)
+            except asyncio.TimeoutError:
+                continue
     
     async def myreports_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /myreports"""
@@ -727,7 +766,30 @@ Welcome {user.first_name}!
         elif data == 'menu_help':
             await query.edit_message_text(
                 "📚 /report - Report\n/add - Add account\n/credits - Credits\n/referral - Referral",
-                parse_mode=ParseMode.MARKDOWN
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⬅️ Back to Menu", callback_data='menu_home')]
+                ])
+            )
+
+        elif data == 'menu_home':
+            credits = self.credit_system.get_credits(user_id)
+            keyboard = [
+                [InlineKeyboardButton("🎯 Report Profile", callback_data='menu_report')],
+                [InlineKeyboardButton("📊 My Reports", callback_data='menu_myreports')],
+                [InlineKeyboardButton("💳 Credits", callback_data='menu_credits')],
+                [InlineKeyboardButton("👥 Referral", callback_data='menu_referral')],
+                [InlineKeyboardButton("📈 Status", callback_data='menu_status')],
+                [InlineKeyboardButton("ℹ️ Help", callback_data='menu_help')],
+            ]
+            if user_id == self.admin_id:
+                keyboard.append([InlineKeyboardButton("⚙️ Admin Panel", callback_data='menu_admin')])
+            await query.edit_message_text(
+                f"🎯 *Instagram Report Bot*\n\n"
+                f"Welcome back!\n\n"
+                f"💳 Your Credits: `{credits}`",
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=InlineKeyboardMarkup(keyboard)
             )
         
         elif data == 'menu_admin' and user_id == self.admin_id:
