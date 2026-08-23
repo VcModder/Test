@@ -1,1 +1,14 @@
-[]
+[
+    {
+        "username": "monxrudo",
+        "password": "monxrudo1",
+        "proxy": "",
+        "is_active": true,
+        "health_score": 100,
+        "reports_today": 0,
+        "max_daily_reports": 5,
+        "total_reports": 0,
+        "last_report_time": null,
+        "consecutive_failures": 0
+    }
+]
