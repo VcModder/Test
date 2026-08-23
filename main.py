@@ -37,6 +37,8 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger('InstagramReportBot')
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 WAITING_FOR_URL = 1
 
