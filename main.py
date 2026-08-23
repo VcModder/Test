@@ -61,6 +61,11 @@ class InstagramReportBot:
             'drugs': '💊 Drugs',
             'hate_speech': '🚫 Hate Speech',
             'copyright': '©️ Copyright',
+            'impersonation': '👤 Impersonation',
+            'bullying': '😠 Bullying',
+            'threats': '⚠️ Threats',
+            'terrorism': '☠️ Terrorism',
+            'self_harm': '🆘 Self Harm',
             'underage': '👶 Underage'
         }
     
