@@ -8,7 +8,7 @@ Referral System Plugin
 
 import logging
 from typing import Optional, Dict
-from credit_system import CreditSystem
+from plugins.credit_system import CreditSystem
 
 logging.basicConfig(
     level=logging.INFO,
