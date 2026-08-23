@@ -1,3 +1,0 @@
-http://proxy1:8080
-http://username:pass@proxy2:8080
-socks5://proxy3:1080
