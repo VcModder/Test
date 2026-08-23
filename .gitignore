@@ -1,0 +1,9 @@
+.env
+config/accounts.json
+config/proxies.txt
+data/*
+!data/.gitkeep
+logs/*
+!logs/.gitkeep
+sessions/*
+!sessions/.gitkeep
