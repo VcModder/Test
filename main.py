@@ -1,17 +1,12 @@
 #!/usr/bin/env python3
 """
-Instagram Report Bot - Telegram Bot
-Complete working bot with admin panel, broadcast, and reporting
-FIXED: Python 3.14 Event Loop Error
-FIXED: Render Deployment Issues
-FIXED: getUpdates Conflict
+Instagram Report Bot - Complete with Plugins
 """
 
 import os
 import asyncio
 import logging
 import json
-import sys
 from datetime import datetime
 from typing import Optional, Dict, List
 import random
@@ -26,23 +21,13 @@ from telegram.constants import ParseMode
 
 from database import Database
 from report_engine import ReportEngine
+from plugins.account_manager import AccountManager
+from plugins.credit_system import CreditSystem
+from plugins.referral_system import ReferralSystem
+from plugins.channel_force import ChannelForce
 
-# Optional plugin imports (try/except for compatibility)
-try:
-    from plugins.account_manager import AccountManager
-    from plugins.credit_system import CreditSystem
-    from plugins.referral_system import ReferralSystem
-    from plugins.channel_force import ChannelForce
-    PLUGINS_ENABLED = True
-except ImportError:
-    PLUGINS_ENABLED = False
-    logger = logging.getLogger(__name__)
-    logger.warning("Plugins not found, running without plugin system")
-
-# Load environment variables
 load_dotenv()
 
-# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -52,8 +37,9 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger('InstagramReportBot')
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
-# Conversation states
 WAITING_FOR_URL = 1
 
 class InstagramReportBot:
@@ -63,21 +49,11 @@ class InstagramReportBot:
         self.db = Database()
         self.report_engine = ReportEngine(self.db)
         
-        # Initialize plugins if available
-        if PLUGINS_ENABLED:
-            try:
-                self.account_manager = AccountManager(self.db)
-                self.credit_system = CreditSystem()
-                self.referral_system = ReferralSystem(self.credit_system, "@Instatounfollow_bot")
-                self.channel_force = ChannelForce()
-                logger.info("✅ Plugins initialized")
-            except Exception as e:
-                logger.error(f"Plugin initialization error: {e}")
-                self.plugins_available = False
-            else:
-                self.plugins_available = True
-        else:
-            self.plugins_available = False
+        # Initialize plugins
+        self.account_manager = AccountManager(self.db)
+        self.credit_system = CreditSystem()
+        self.referral_system = ReferralSystem(self.credit_system, "@Instatounfollow_bot")
+        self.channel_force = ChannelForce()
         
         self.user_states = {}
         self.report_reasons = {
@@ -98,90 +74,70 @@ class InstagramReportBot:
             'underage': '👶 Underage'
         }
     
-    # ============ ERROR HANDLER ============
+    async def setup_commands(self, app: Application):
+        """Setup bot commands"""
+        commands = [
+            BotCommand("start", "🚀 Start the bot"),
+            BotCommand("report", "🎯 Report Instagram profile"),
+            BotCommand("add", "📱 Add Instagram account"),
+            BotCommand("credits", "💳 Check credits"),
+            BotCommand("referral", "👥 Referral system"),
+            BotCommand("myreports", "📊 View my reports"),
+            BotCommand("status", "📈 Bot status"),
+            BotCommand("help", "ℹ️ Help"),
+            BotCommand("admin", "⚙️ Admin panel"),
+            BotCommand("givecredits", "💰 Give credits"),
+            BotCommand("removecredits", "💸 Remove credits"),
+            BotCommand("channel", "📢 Channel settings"),
+            BotCommand("broadcast", "📢 Broadcast"),
+            BotCommand("logs", "📋 View logs"),
+            BotCommand("stats", "📊 Statistics"),
+            BotCommand("ban", "🚫 Ban user"),
+            BotCommand("unban", "✅ Unban user")
+        ]
+        await app.bot.set_my_commands(commands)
     
-    async def error_handler(self, update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle errors caused by updates."""
-        logger.error(f"Exception while handling an update: {context.error}")
-        
-        try:
-            if "Conflict" in str(context.error):
-                logger.error("⚠️ Bot conflict detected - another instance running!")
-                logger.error("Solution: Stop other bot instance")
-            elif "Event loop is closed" in str(context.error):
-                logger.error("⚠️ Event loop error - Python version issue")
-                logger.error("Solution: Use Python 3.11 instead of 3.14")
-            elif "NetworkError" in str(context.error):
-                logger.error("⚠️ Network error - check internet connection")
-            else:
-                logger.error(f"Update {update} caused error: {context.error}")
-        except:
-            pass
-    
-    # ============ BASIC COMMANDS ============
+    # ============ START ============
     
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /start command"""
+        """Handle /start"""
         user = update.effective_user
         
-        # Check channel membership if plugin enabled
-        if self.plugins_available and hasattr(self, 'channel_force'):
-            try:
-                if self.channel_force.is_enabled():
-                    is_member = await self.channel_force.check_membership(context, user.id)
-                    if not is_member:
-                        await update.message.reply_text(
-                            self.channel_force.get_welcome_message(),
-                            parse_mode=ParseMode.MARKDOWN,
-                            reply_markup=self.channel_force.get_join_keyboard()
-                        )
-                        return
-            except Exception as e:
-                logger.error(f"Channel check error: {e}")
+        # Check channel membership
+        if self.channel_force.is_enabled():
+            is_member = await self.channel_force.check_membership(context, user.id)
+            if not is_member:
+                await update.message.reply_text(
+                    self.channel_force.get_welcome_message(),
+                    parse_mode=ParseMode.MARKDOWN,
+                    reply_markup=self.channel_force.get_join_keyboard()
+                )
+                return
         
-        # Save user to database
+        # Save user
         self.db.add_user(user.id, user.username or '', user.first_name)
         
-        # Create credit user if plugin available
-        if self.plugins_available:
-            try:
-                if not self.credit_system.get_user(user.id):
-                    self.credit_system.create_user(user.id, user.username or '', user.first_name)
-            except:
-                pass
+        # Create credit user
+        if not self.credit_system.get_user(user.id):
+            self.credit_system.create_user(user.id, user.username or '', user.first_name)
         
         # Check referral
         if context.args and context.args[0].startswith('ref_'):
-            if self.plugins_available:
-                try:
-                    referral_code = context.args[0][4:]
-                    if self.referral_system.process_referral(referral_code, user.id):
-                        await update.message.reply_text("🎉 Referral bonus credited!")
-                except:
-                    pass
+            referral_code = context.args[0][4:]
+            if self.referral_system.process_referral(referral_code, user.id):
+                await update.message.reply_text("🎉 Referral bonus credited!")
         
-        # Get credits
-        credits = 0
-        if self.plugins_available:
-            try:
-                credits = self.credit_system.get_credits(user.id)
-            except:
-                credits = 0
+        credits = self.credit_system.get_credits(user.id)
         
-        # Create keyboard
         keyboard = [
             [InlineKeyboardButton("🎯 Report Profile", callback_data='menu_report')],
             [InlineKeyboardButton("📊 My Reports", callback_data='menu_myreports')],
+            [InlineKeyboardButton("💳 Credits", callback_data='menu_credits')],
+            [InlineKeyboardButton("👥 Referral", callback_data='menu_referral')],
+            [InlineKeyboardButton("📈 Status", callback_data='menu_status')],
+            [InlineKeyboardButton("ℹ️ Help", callback_data='menu_help')],
         ]
         
-        if self.plugins_available:
-            keyboard.append([InlineKeyboardButton("💳 Credits", callback_data='menu_credits')])
-            keyboard.append([InlineKeyboardButton("👥 Referral", callback_data='menu_referral')])
-        
-        keyboard.append([InlineKeyboardButton("📈 Status", callback_data='menu_status')])
-        keyboard.append([InlineKeyboardButton("ℹ️ Help", callback_data='menu_help')])
-        
-        # Add admin options
         if user.id == self.admin_id:
             keyboard.append([InlineKeyboardButton("⚙️ Admin Panel", callback_data='menu_admin')])
         
@@ -194,120 +150,102 @@ Welcome {user.first_name}!
 
 💳 Your Credits: `{credits}`
 
-*Features:*
-✅ Multi-account reporting (2-5 accounts)
-✅ Proxy rotation
-✅ Human-like delays
-✅ Account health monitoring
-✅ Target status tracking
-
 *Commands:*
-/report - Report a profile
-/myreports - View your reports
-/status - Bot status
-/help - Help
+/report - Report profile (4 credits)
+/add - Add account (4 credits)
+/credits - Check credits
+/referral - Referral link (2 credits)
 
 ⚠️ *Only report genuine violations!*
 """
-        
         await update.message.reply_text(
             welcome_text,
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=reply_markup
         )
         
-        # Log activity
-        self.db.add_log(user.id, 'start', 'User started the bot')
+        self.db.add_log(user.id, 'start', 'User started bot')
+    
+    # ============ HELP ============
     
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /help command"""
+        """Handle /help"""
         help_text = """
 📚 *Help & Commands*
 
 *User Commands:*
 /start - Start bot
-/report - Report Instagram profile
-/myreports - View your reports
+/report - Report profile (4 credits)
+/add - Add account (4 credits)
+/credits - Check credits
+/referral - Referral link
+/myreports - View reports
 /status - Bot status
-/help - Show this help
 
 *How to Report:*
-1. Send /report
-2. Enter Instagram profile URL
+1. /report
+2. Enter Instagram URL
 3. Select reason
-4. Wait for processing
 
-*Example:*
-/report https://instagram.com/username
+*How to Add Account:*
+/add username password
 
 ⚠️ *Only report genuine violations!*
 """
         await update.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN)
     
+    # ============ STATUS ============
+    
     async def status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /status command"""
-        try:
-            stats = self.db.get_stats()
-            
-            status_text = f"""
+        """Handle /status"""
+        stats = self.db.get_stats()
+        
+        status_text = f"""
 📊 *Bot Status*
 
 👥 Users: {stats['total_users']}
-📝 Total Reports: {stats['total_reports']}
+📝 Reports: {stats['total_reports']}
 ✅ Completed: {stats['completed_reports']}
 ⏳ Pending: {stats['pending_reports']}
-📱 Active Accounts: {stats['active_accounts']}
-🌐 Active Proxies: {stats['active_proxies']}
+📱 Accounts: {stats['active_accounts']}
+🌐 Proxies: {stats['active_proxies']}
 
-*System:* 🟢 Online
+🟢 Online
 """
-            await update.message.reply_text(status_text, parse_mode=ParseMode.MARKDOWN)
-        except Exception as e:
-            logger.error(f"Status error: {e}")
-            await update.message.reply_text("📊 *Bot Status*\n\n🟢 Online", parse_mode=ParseMode.MARKDOWN)
+        await update.message.reply_text(status_text, parse_mode=ParseMode.MARKDOWN)
     
-    # ============ REPORT COMMANDS ============
+    # ============ REPORT ============
     
     async def report_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /report command"""
+        """Handle /report"""
         user = update.effective_user
         
-        # Check if user is banned
         user_data = self.db.get_user(user.id)
         if user_data and user_data['is_banned']:
-            await update.message.reply_text("❌ You are banned from using this bot.")
+            await update.message.reply_text("❌ You are banned.")
             return
         
-        # Check channel membership
-        if self.plugins_available and hasattr(self, 'channel_force'):
-            try:
-                if self.channel_force.is_enabled():
-                    is_member = await self.channel_force.check_membership(context, user.id)
-                    if not is_member:
-                        await update.message.reply_text(
-                            self.channel_force.get_welcome_message(),
-                            parse_mode=ParseMode.MARKDOWN,
-                            reply_markup=self.channel_force.get_join_keyboard()
-                        )
-                        return
-            except:
-                pass
+        # Check channel
+        if self.channel_force.is_enabled():
+            is_member = await self.channel_force.check_membership(context, user.id)
+            if not is_member:
+                await update.message.reply_text(
+                    self.channel_force.get_welcome_message(),
+                    parse_mode=ParseMode.MARKDOWN,
+                    reply_markup=self.channel_force.get_join_keyboard()
+                )
+                return
         
         # Check credits
-        if self.plugins_available:
-            try:
-                credits = self.credit_system.get_credits(user.id)
-                if credits < 4:
-                    await update.message.reply_text(
-                        f"❌ *Insufficient Credits*\n\n"
-                        f"You need 4 credits to report.\n"
-                        f"Your credits: {credits}\n\n"
-                        f"Earn credits via referral: /referral",
-                        parse_mode=ParseMode.MARKDOWN
-                    )
-                    return
-            except:
-                pass
+        credits = self.credit_system.get_credits(user.id)
+        if credits < 4:
+            await update.message.reply_text(
+                f"❌ *Insufficient Credits*\n\n"
+                f"Need 4 credits. You have: {credits}\n"
+                f"Earn via /referral",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
         
         if context.args:
             target_url = context.args[0]
@@ -316,22 +254,19 @@ Welcome {user.first_name}!
         else:
             await update.message.reply_text(
                 "🔗 *Report Instagram Profile*\n\n"
-                "Send the Instagram profile URL:\n"
-                "Example: `https://instagram.com/username`\n\n"
-                "Or send /cancel to cancel.",
+                "Send Instagram URL:\n"
+                "Example: `https://instagram.com/username`",
                 parse_mode=ParseMode.MARKDOWN
             )
             context.user_data['state'] = WAITING_FOR_URL
     
     async def handle_report_url(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle URL input for report"""
+        """Handle URL input"""
         target_url = update.message.text.strip()
         
-        # Validate URL
         if 'instagram.com' not in target_url and '/' in target_url:
             await update.message.reply_text(
-                "❌ Invalid URL. Please send Instagram profile URL:\n"
-                "Example: `https://instagram.com/username`",
+                "❌ Invalid URL. Example: `https://instagram.com/username`",
                 parse_mode=ParseMode.MARKDOWN
             )
             return WAITING_FOR_URL
@@ -341,39 +276,34 @@ Welcome {user.first_name}!
         return ConversationHandler.END
     
     async def show_reason_selection(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Show reason selection keyboard"""
+        """Show reasons"""
         keyboard = []
-        
         reasons_list = list(self.report_reasons.items())
+        
         for i in range(0, len(reasons_list), 2):
             row = []
             for reason_key, reason_label in reasons_list[i:i+2]:
-                row.append(InlineKeyboardButton(
-                    reason_label, 
-                    callback_data=f'reason_{reason_key}'
-                ))
+                row.append(InlineKeyboardButton(reason_label, callback_data=f'reason_{reason_key}'))
             keyboard.append(row)
         
         keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data='cancel')])
-        
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         target_url = context.user_data.get('target_url', 'Unknown')
         
         await update.message.reply_text(
-            f"🎯 *Target:* `{target_url}`\n\n"
-            "Select report reason:",
+            f"🎯 *Target:* `{target_url}`\n\nSelect reason:",
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=reply_markup
         )
     
     async def handle_reason_selection(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle reason selection"""
+        """Handle reason"""
         query = update.callback_query
         await query.answer()
         
         if query.data == 'cancel':
-            await query.edit_message_text("❌ Report cancelled.")
+            await query.edit_message_text("❌ Cancelled.")
             return
         
         reason = query.data.replace('reason_', '')
@@ -381,132 +311,145 @@ Welcome {user.first_name}!
         user_id = query.from_user.id
         
         # Spend credits
-        if self.plugins_available:
-            try:
-                if not self.credit_system.spend_credits(user_id, 4, f"Report: {target_url}"):
-                    await query.edit_message_text("❌ Insufficient credits!")
-                    return
-            except:
-                pass
+        if not self.credit_system.spend_credits(user_id, 4, f"Report: {target_url}"):
+            await query.edit_message_text("❌ Insufficient credits!")
+            return
         
         reason_label = self.report_reasons.get(reason, reason)
         
         await query.edit_message_text(
-            f"🔄 *Processing Report*\n\n"
-            f"🎯 Target: `{target_url}`\n"
-            f"📋 Reason: {reason_label}\n\n"
-            f"⏳ This may take a few minutes...",
+            f"🔄 *Processing*\n\n"
+            f"Target: `{target_url}`\n"
+            f"Reason: {reason_label}\n"
+            f"Credits spent: 4\n\n"
+            f"⏳ Please wait...",
             parse_mode=ParseMode.MARKDOWN
         )
         
-        # Execute report in background
         asyncio.create_task(self.process_report(query, target_url, reason, user_id))
     
     async def process_report(self, query, target_url: str, reason: str, user_id: int):
-        """Process report in background"""
+        """Process report"""
+        stop_animation = asyncio.Event()
+        animation_task = asyncio.create_task(
+            self.animate_processing(query, target_url, reason, stop_animation)
+        )
         try:
             result = await self.report_engine.execute_report(target_url, reason, user_id)
             
             if result['success']:
                 success_count = result.get('success_count', 0)
                 accounts_used = result.get('accounts_used', 0)
-                target_status = result.get('target_status', {}).get('status', 'unknown')
-                
-                status_emoji = {
-                    'removed': '✅',
-                    'disabled': '✅',
-                    'active': '⚠️',
-                    'unknown': '❓'
-                }.get(target_status, '❓')
                 
                 await query.edit_message_text(
                     f"✅ *Report Completed!*\n\n"
-                    f"🎯 Target: `{target_url}`\n"
-                    f"📋 Reason: {reason}\n"
-                    f"📱 Accounts Used: {accounts_used}\n"
-                    f"✅ Success: {success_count}/{accounts_used}\n\n"
-                    f"📊 Target Status: {status_emoji} {target_status}",
+                    f"Target: `{target_url}`\n"
+                    f"Reason: {reason}\n"
+                    f"Accounts: {accounts_used}\n"
+                    f"Success: {success_count}/{accounts_used}",
                     parse_mode=ParseMode.MARKDOWN
                 )
             else:
-                # Refund credits
-                if self.plugins_available:
-                    try:
-                        self.credit_system.add_credits(user_id, 4, "Refund - Failed")
-                    except:
-                        pass
+                # Refund
+                self.credit_system.add_credits(user_id, 4, "Refund - Failed")
                 
                 await query.edit_message_text(
-                    f"❌ *Report Failed*\n\n"
-                    f"Error: {result.get('error', 'Unknown error')}",
+                    f"❌ *Failed*\n\n"
+                    f"Error: {result.get('error', 'Unknown')}\n"
+                    f"Credits refunded: 4",
                     parse_mode=ParseMode.MARKDOWN
                 )
-                
         except Exception as e:
-            logger.error(f"Report processing error: {e}")
+            self.credit_system.add_credits(user_id, 4, "Refund - Error")
+            logger.exception("Unexpected report error for user %s", user_id)
             try:
-                await query.edit_message_text(f"❌ Error: {str(e)}")
-            except:
+                await query.edit_message_text(
+                    "❌ *Report Error*\n\n"
+                    f"`{str(e)}`\n\n"
+                    "Credits refunded: 4",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            except Exception:
                 pass
+        finally:
+            stop_animation.set()
+            animation_task.cancel()
+            try:
+                await animation_task
+            except asyncio.CancelledError:
+                pass
+
+    async def animate_processing(self, query, target_url: str, reason: str, stop_event: asyncio.Event):
+        """Show lightweight progress feedback while a report is running."""
+        frames = ["⏳", "⌛", "🔄"]
+        index = 0
+        while not stop_event.is_set():
+            try:
+                await query.edit_message_text(
+                    f"{frames[index % len(frames)]} *Processing report...*\n\n"
+                    f"Target: `{target_url}`\n"
+                    f"Reason: {reason}\n\n"
+                    "Please wait while the report is submitted.",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            except Exception:
+                logger.debug("Could not update report progress message", exc_info=True)
+                return
+            index += 1
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=0.9)
+            except asyncio.TimeoutError:
+                continue
     
     async def myreports_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /myreports command"""
+        """Handle /myreports"""
         user_id = update.effective_user.id
         reports = self.db.get_user_reports(user_id, limit=10)
         
         if not reports:
-            await update.message.reply_text("📊 You have no reports yet.")
+            await update.message.reply_text("📊 No reports yet.")
             return
         
-        report_text = "📊 *Your Recent Reports:*\n\n"
-        
+        report_text = "📊 *Your Reports:*\n\n"
         for report in reports[:5]:
-            status_emoji = {
-                'completed': '✅',
-                'pending': '⏳',
-                'failed': '❌'
-            }.get(report['status'], '❓')
-            
+            status_emoji = {'completed': '✅', 'pending': '⏳', 'failed': '❌'}.get(report['status'], '❓')
             report_text += f"{status_emoji} `{report['target_username']}` - {report['reason']}\n"
-            report_text += f"   📅 {report['created_at']}\n\n"
         
         await update.message.reply_text(report_text, parse_mode=ParseMode.MARKDOWN)
     
     # ============ PLUGIN COMMANDS ============
     
     async def add_account_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /add command"""
-        if not self.plugins_available:
-            await update.message.reply_text("❌ Plugin system not available.")
-            return
-        
+        """Handle /add"""
         user = update.effective_user
         
-        # Check banned
         user_data = self.db.get_user(user.id)
         if user_data and user_data['is_banned']:
-            await update.message.reply_text("❌ You are banned.")
+            await update.message.reply_text("❌ Banned.")
             return
         
-        # Check credits
-        try:
-            credits = self.credit_system.get_credits(user.id)
-            if credits < 4:
+        if self.channel_force.is_enabled():
+            is_member = await self.channel_force.check_membership(context, user.id)
+            if not is_member:
                 await update.message.reply_text(
-                    f"❌ *Insufficient Credits*\n\n"
-                    f"You need 4 credits.\n"
-                    f"Your credits: {credits}\n\n"
-                    f"Get credits: /referral",
-                    parse_mode=ParseMode.MARKDOWN
+                    self.channel_force.get_welcome_message(),
+                    parse_mode=ParseMode.MARKDOWN,
+                    reply_markup=self.channel_force.get_join_keyboard()
                 )
                 return
-        except:
-            pass
+        
+        credits = self.credit_system.get_credits(user.id)
+        if credits < 4:
+            await update.message.reply_text(
+                f"❌ Need 4 credits. You have: {credits}\n/referral to earn",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
         
         if not context.args or len(context.args) < 2:
             await update.message.reply_text(
-                "📱 *Add Instagram Account*\n\n"
-                "Usage: `/add username password`\n\n"
+                "📱 *Add Account*\n\n"
+                "Usage: `/add username password`\n"
                 "Example: `/add myuser mypass123`",
                 parse_mode=ParseMode.MARKDOWN
             )
@@ -515,27 +458,28 @@ Welcome {user.first_name}!
         username = context.args[0].replace('@', '')
         password = context.args[1]
         
+        if self.account_manager.check_account_exists(username):
+            await update.message.reply_text(f"❌ Account `{username}` exists!", parse_mode=ParseMode.MARKDOWN)
+            return
+        
         status_msg = await update.message.reply_text(
-            f"⏳ *Verifying Account...*\n\n"
-            f"Username: `{username}`\n"
-            f"Password: `{password}`\n\n"
-            f"Please wait...",
+            f"⏳ *Verifying...*\n\nUsername: `{username}`\nPassword: `{password}`",
             parse_mode=ParseMode.MARKDOWN
         )
         
-        try:
-            result = self.account_manager.add_account(username, password)
-            
-            if result['success']:
-                self.credit_system.spend_credits(user.id, 4, f"Added: {username}")
-            
-            await status_msg.edit_text(result['message'], parse_mode=ParseMode.MARKDOWN)
-        except Exception as e:
-            await status_msg.edit_text(f"❌ Error: {str(e)}")
+        result = self.account_manager.add_account(username, password)
+        
+        if result['success']:
+            self.credit_system.spend_credits(user.id, 4, f"Added: {username}")
+        
+        await status_msg.edit_text(result['message'], parse_mode=ParseMode.MARKDOWN)
+        self.db.add_log(user.id, 'add_account', f"Added: {username} - Success: {result['success']}")
     
     async def remove_account_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /removeacc command"""
-        if update.effective_user.id != self.admin_id:
+        """Handle /removeacc"""
+        user = update.effective_user
+        
+        if user.id != self.admin_id:
             await update.message.reply_text("❌ Admin only.")
             return
         
@@ -543,44 +487,35 @@ Welcome {user.first_name}!
             await update.message.reply_text("Usage: /removeacc username")
             return
         
-        try:
-            result = self.account_manager.remove_account(context.args[0])
-            await update.message.reply_text(result['message'], parse_mode=ParseMode.MARKDOWN)
-        except Exception as e:
-            await update.message.reply_text(f"❌ Error: {str(e)}")
+        result = self.account_manager.remove_account(context.args[0])
+        await update.message.reply_text(result['message'], parse_mode=ParseMode.MARKDOWN)
     
     async def list_accounts_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /myacc command"""
-        if update.effective_user.id != self.admin_id:
+        """Handle /myacc"""
+        user = update.effective_user
+        
+        if user.id != self.admin_id:
             await update.message.reply_text("❌ Admin only.")
             return
         
-        try:
-            text = self.account_manager.list_accounts()
-            await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
-        except Exception as e:
-            await update.message.reply_text(f"❌ Error: {str(e)}")
+        text = self.account_manager.list_accounts()
+        await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
     
     async def credits_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /credits command"""
-        if not self.plugins_available:
-            await update.message.reply_text("❌ Plugin system not available.")
-            return
-        
+        """Handle /credits"""
         user = update.effective_user
         
-        try:
-            if not self.credit_system.get_user(user.id):
-                self.credit_system.create_user(user.id, user.username or '', user.first_name)
-            
-            summary = self.credit_system.get_credit_summary(user.id)
-            await update.message.reply_text(summary, parse_mode=ParseMode.MARKDOWN)
-        except Exception as e:
-            await update.message.reply_text(f"❌ Error: {str(e)}")
+        if not self.credit_system.get_user(user.id):
+            self.credit_system.create_user(user.id, user.username or '', user.first_name)
+        
+        summary = self.credit_system.get_credit_summary(user.id)
+        await update.message.reply_text(summary, parse_mode=ParseMode.MARKDOWN)
     
     async def give_credits_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /givecredits command"""
-        if update.effective_user.id != self.admin_id:
+        """Handle /givecredits"""
+        user = update.effective_user
+        
+        if user.id != self.admin_id:
             await update.message.reply_text("❌ Admin only.")
             return
         
@@ -597,12 +532,15 @@ Welcome {user.first_name}!
             
             self.credit_system.add_credits(target_id, amount, "Admin grant")
             await update.message.reply_text(f"✅ Added {amount} credits to {target_id}")
+            self.db.add_log(user.id, 'give_credits', f'{amount} to {target_id}')
         except ValueError:
-            await update.message.reply_text("❌ Invalid ID or amount.")
+            await update.message.reply_text("❌ Invalid.")
     
     async def remove_credits_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /removecredits command"""
-        if update.effective_user.id != self.admin_id:
+        """Handle /removecredits"""
+        user = update.effective_user
+        
+        if user.id != self.admin_id:
             await update.message.reply_text("❌ Admin only.")
             return
         
@@ -622,41 +560,33 @@ Welcome {user.first_name}!
             await update.message.reply_text("❌ Invalid.")
     
     async def referral_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /referral command"""
-        if not self.plugins_available:
-            await update.message.reply_text("❌ Plugin system not available.")
-            return
-        
+        """Handle /referral"""
         user = update.effective_user
         
-        try:
-            if not self.credit_system.get_user(user.id):
-                self.credit_system.create_user(user.id, user.username or '', user.first_name)
-            
-            stats = self.referral_system.get_referral_stats(user.id)
-            await update.message.reply_text(stats, parse_mode=ParseMode.MARKDOWN)
-        except Exception as e:
-            await update.message.reply_text(f"❌ Error: {str(e)}")
+        if not self.credit_system.get_user(user.id):
+            self.credit_system.create_user(user.id, user.username or '', user.first_name)
+        
+        stats = self.referral_system.get_referral_stats(user.id)
+        await update.message.reply_text(stats, parse_mode=ParseMode.MARKDOWN)
     
     async def channel_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /channel command"""
-        if update.effective_user.id != self.admin_id:
+        """Handle /channel"""
+        user = update.effective_user
+        
+        if user.id != self.admin_id:
             await update.message.reply_text("❌ Admin only.")
             return
         
         if not context.args:
-            try:
-                channels = self.channel_force.list_channels()
-                status = "✅ Enabled" if self.channel_force.is_enabled() else "❌ Disabled"
-                
-                text = f"📢 *Channel Settings*\n\nStatus: {status}\n\n*Channels:*\n"
-                for ch in channels:
-                    text += f"• @{ch}\n"
-                
-                text += "\n/channel add @username\n/channel remove @username"
-                await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
-            except:
-                await update.message.reply_text("❌ Channel system not available.")
+            channels = self.channel_force.list_channels()
+            status = "✅ Enabled" if self.channel_force.is_enabled() else "❌ Disabled"
+            
+            text = f"📢 *Channels*\n\nStatus: {status}\n\n"
+            for ch in channels:
+                text += f"• @{ch}\n"
+            
+            text += "\n/channel add @username\n/channel remove @username"
+            await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
         
         elif context.args[0].lower() == 'add':
             if len(context.args) < 2:
@@ -664,18 +594,26 @@ Welcome {user.first_name}!
                 return
             
             channel = context.args[1].replace('@', '')
-            try:
-                if self.channel_force.add_channel(channel):
-                    await update.message.reply_text(f"✅ @{channel} added!")
-                else:
-                    await update.message.reply_text("❌ Exists!")
-            except:
-                await update.message.reply_text("❌ Channel system not available.")
+            if self.channel_force.add_channel(channel):
+                await update.message.reply_text(f"✅ @{channel} added!")
+            else:
+                await update.message.reply_text("❌ Exists!")
+        
+        elif context.args[0].lower() == 'remove':
+            if len(context.args) < 2:
+                await update.message.reply_text("Usage: /channel remove @username")
+                return
+            
+            channel = context.args[1].replace('@', '')
+            if self.channel_force.remove_channel(channel):
+                await update.message.reply_text(f"✅ @{channel} removed!")
+            else:
+                await update.message.reply_text("❌ Not found!")
     
-    # ============ ADMIN COMMANDS ============
+    # ============ ADMIN ============
     
     async def admin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /admin command"""
+        """Handle /admin"""
         if update.effective_user.id != self.admin_id:
             await update.message.reply_text("❌ Unauthorized.")
             return
@@ -693,13 +631,13 @@ Welcome {user.first_name}!
         )
     
     async def stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /stats command"""
+        """Handle /stats"""
         if update.effective_user.id != self.admin_id:
             return
         
-        try:
-            stats = self.db.get_stats()
-            text = f"""
+        stats = self.db.get_stats()
+        
+        text = f"""
 📊 *Stats*
 
 👥 Users: {stats['total_users']}
@@ -707,27 +645,23 @@ Welcome {user.first_name}!
 📱 Accounts: {stats['active_accounts']}
 🌐 Proxies: {stats['active_proxies']}
 """
-            await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
-        except:
-            await update.message.reply_text("❌ Stats error.")
+        await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
     
     async def logs_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /logs command"""
+        """Handle /logs"""
         if update.effective_user.id != self.admin_id:
             return
         
-        try:
-            logs = self.db.get_logs(limit=10)
-            text = "📋 *Recent Logs:*\n\n"
-            for log in logs[:5]:
-                text += f"🕐 {log['timestamp']} - {log['action']}\n"
-            
-            await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
-        except:
-            await update.message.reply_text("❌ No logs.")
+        logs = self.db.get_logs(limit=10)
+        
+        text = "📋 *Recent Logs:*\n\n"
+        for log in logs[:5]:
+            text += f"🕐 {log['timestamp']} - {log['action']}\n"
+        
+        await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
     
     async def broadcast_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /broadcast command"""
+        """Handle /broadcast"""
         if update.effective_user.id != self.admin_id:
             return
         
@@ -754,7 +688,7 @@ Welcome {user.first_name}!
         await update.message.reply_text(f"✅ Sent to {sent} users")
     
     async def ban_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /ban command"""
+        """Handle /ban"""
         if update.effective_user.id != self.admin_id:
             return
         
@@ -766,7 +700,7 @@ Welcome {user.first_name}!
                 await update.message.reply_text("❌ Invalid")
     
     async def unban_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /unban command"""
+        """Handle /unban"""
         if update.effective_user.id != self.admin_id:
             return
         
@@ -777,142 +711,153 @@ Welcome {user.first_name}!
             except:
                 await update.message.reply_text("❌ Invalid")
     
-    # ============ CALLBACK HANDLERS ============
+    # ============ BUTTONS ============
     
     async def button_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle button callbacks"""
+        """Handle buttons"""
         query = update.callback_query
         await query.answer()
         
         data = query.data
         user_id = query.from_user.id
         
-        try:
-            if data == 'menu_report':
-                await query.edit_message_text(
-                    "🔗 Send Instagram URL:\nExample: `https://instagram.com/username`",
-                    parse_mode=ParseMode.MARKDOWN
-                )
-                context.user_data['state'] = WAITING_FOR_URL
-            
-            elif data == 'menu_myreports':
-                reports = self.db.get_user_reports(user_id, 5)
-                
-                if not reports:
-                    await query.edit_message_text("📊 No reports.")
-                    return
-                
-                text = "📊 *Reports:*\n\n"
-                for r in reports:
-                    emoji = {'completed': '✅', 'pending': '⏳', 'failed': '❌'}.get(r['status'], '❓')
-                    text += f"{emoji} `{r['target_username']}`\n"
-                
-                await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN)
-            
-            elif data == 'menu_credits':
-                if self.plugins_available:
-                    if not self.credit_system.get_user(user_id):
-                        self.credit_system.create_user(user_id, '', '')
-                    summary = self.credit_system.get_credit_summary(user_id)
-                    await query.edit_message_text(summary, parse_mode=ParseMode.MARKDOWN)
-                else:
-                    await query.edit_message_text("💳 Credits: 0")
-            
-            elif data == 'menu_referral':
-                if self.plugins_available:
-                    if not self.credit_system.get_user(user_id):
-                        self.credit_system.create_user(user_id, '', '')
-                    stats = self.referral_system.get_referral_stats(user_id)
-                    await query.edit_message_text(stats, parse_mode=ParseMode.MARKDOWN)
-                else:
-                    await query.edit_message_text("👥 Referral system not available.")
-            
-            elif data == 'menu_status':
-                stats = self.db.get_stats()
-                await query.edit_message_text(
-                    f"📊 Users: {stats['total_users']}\n"
-                    f"📝 Reports: {stats['total_reports']}\n"
-                    f"🟢 Online",
-                    parse_mode=ParseMode.MARKDOWN
-                )
-            
-            elif data == 'menu_help':
-                await query.edit_message_text(
-                    "📚 /report - Report\n/add - Add account\n/credits - Credits\n/referral - Referral",
-                    parse_mode=ParseMode.MARKDOWN
-                )
-            
-            elif data == 'menu_admin' and user_id == self.admin_id:
-                keyboard = [
-                    [InlineKeyboardButton("📊 Stats", callback_data='admin_stats')],
-                    [InlineKeyboardButton("📋 Logs", callback_data='admin_logs')],
-                ]
-                await query.edit_message_text(
-                    "⚙️ *Admin Panel*",
-                    parse_mode=ParseMode.MARKDOWN,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-            
-            elif data == 'admin_stats':
-                stats = self.db.get_stats()
-                await query.edit_message_text(
-                    f"👥 Users: {stats['total_users']}\n📝 Reports: {stats['total_reports']}",
-                    parse_mode=ParseMode.MARKDOWN
-                )
-            
-            elif data == 'admin_logs':
-                logs = self.db.get_logs(5)
-                text = "📋 *Logs:*\n\n"
-                for log in logs[:3]:
-                    text += f"🕐 {log['action']}\n"
-                await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN)
-            
-            elif data == 'check_membership':
-                if self.plugins_available:
-                    is_member = await self.channel_force.check_membership(context, user_id)
-                    if is_member:
-                        await query.edit_message_text("✅ Verified!")
-                    else:
-                        await query.answer("❌ Join all channels first!", show_alert=True)
-            
-            elif data.startswith('reason_'):
-                await self.handle_reason_selection(update, context)
+        if data == 'menu_report':
+            await query.edit_message_text(
+                "🔗 Send Instagram URL:\nExample: `https://instagram.com/username`",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            context.user_data['state'] = WAITING_FOR_URL
         
-        except Exception as e:
-            logger.error(f"Button handler error: {e}")
-            try:
-                await query.edit_message_text("❌ Error. Try again.")
-            except:
-                pass
+        elif data == 'menu_myreports':
+            reports = self.db.get_user_reports(user_id, 5)
+            
+            if not reports:
+                await query.edit_message_text("📊 No reports.")
+                return
+            
+            text = "📊 *Reports:*\n\n"
+            for r in reports:
+                emoji = {'completed': '✅', 'pending': '⏳', 'failed': '❌'}.get(r['status'], '❓')
+                text += f"{emoji} `{r['target_username']}`\n"
+            
+            await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN)
+        
+        elif data == 'menu_credits':
+            if not self.credit_system.get_user(user_id):
+                self.credit_system.create_user(user_id, '', '')
+            
+            summary = self.credit_system.get_credit_summary(user_id)
+            await query.edit_message_text(summary, parse_mode=ParseMode.MARKDOWN)
+        
+        elif data == 'menu_referral':
+            if not self.credit_system.get_user(user_id):
+                self.credit_system.create_user(user_id, '', '')
+            
+            stats = self.referral_system.get_referral_stats(user_id)
+            await query.edit_message_text(stats, parse_mode=ParseMode.MARKDOWN)
+        
+        elif data == 'menu_status':
+            stats = self.db.get_stats()
+            await query.edit_message_text(
+                f"📊 Users: {stats['total_users']}\n"
+                f"📝 Reports: {stats['total_reports']}\n"
+                f"🟢 Online",
+                parse_mode=ParseMode.MARKDOWN
+            )
+        
+        elif data == 'menu_help':
+            await query.edit_message_text(
+                "📚 /report - Report\n/add - Add account\n/credits - Credits\n/referral - Referral",
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⬅️ Back to Menu", callback_data='menu_home')]
+                ])
+            )
+
+        elif data == 'menu_home':
+            credits = self.credit_system.get_credits(user_id)
+            keyboard = [
+                [InlineKeyboardButton("🎯 Report Profile", callback_data='menu_report')],
+                [InlineKeyboardButton("📊 My Reports", callback_data='menu_myreports')],
+                [InlineKeyboardButton("💳 Credits", callback_data='menu_credits')],
+                [InlineKeyboardButton("👥 Referral", callback_data='menu_referral')],
+                [InlineKeyboardButton("📈 Status", callback_data='menu_status')],
+                [InlineKeyboardButton("ℹ️ Help", callback_data='menu_help')],
+            ]
+            if user_id == self.admin_id:
+                keyboard.append([InlineKeyboardButton("⚙️ Admin Panel", callback_data='menu_admin')])
+            await query.edit_message_text(
+                f"🎯 *Instagram Report Bot*\n\n"
+                f"Welcome back!\n\n"
+                f"💳 Your Credits: `{credits}`",
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+        
+        elif data == 'menu_admin' and user_id == self.admin_id:
+            keyboard = [
+                [InlineKeyboardButton("📊 Stats", callback_data='admin_stats')],
+                [InlineKeyboardButton("📋 Logs", callback_data='admin_logs')],
+            ]
+            await query.edit_message_text(
+                "⚙️ *Admin Panel*",
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+        
+        elif data == 'admin_stats':
+            stats = self.db.get_stats()
+            await query.edit_message_text(
+                f"👥 Users: {stats['total_users']}\n📝 Reports: {stats['total_reports']}",
+                parse_mode=ParseMode.MARKDOWN
+            )
+        
+        elif data == 'admin_logs':
+            logs = self.db.get_logs(5)
+            text = "📋 *Logs:*\n\n"
+            for log in logs[:3]:
+                text += f"🕐 {log['action']}\n"
+            await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN)
+        
+        elif data == 'check_membership':
+            is_member = await self.channel_force.check_membership(context, user_id)
+            if is_member:
+                await query.edit_message_text("✅ Verified!")
+            else:
+                await query.answer("❌ Join all channels first!", show_alert=True)
+        
+        elif data.startswith('reason_'):
+            await self.handle_reason_selection(update, context)
     
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle text messages"""
+        """Handle messages"""
         state = context.user_data.get('state')
         
         if state == WAITING_FOR_URL:
             await self.handle_report_url(update, context)
     
     async def cancel_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /cancel command"""
+        """Handle /cancel"""
         context.user_data.clear()
         await update.message.reply_text("❌ Cancelled.")
         return ConversationHandler.END
     
-    # ============ MAIN RUN ============
+    # ============ RUN ============
     
     def run(self):
-        """Run the bot - Python 3.14 compatible"""
+        """Run bot"""
         if not self.token:
-            logger.error("No bot token found! Set TELEGRAM_BOT_TOKEN in .env")
+            logger.error("No token! Set TELEGRAM_BOT_TOKEN in .env")
             return
         
-        # Create application
-        app = Application.builder().token(self.token).build()
+        app = (
+            Application.builder()
+            .token(self.token)
+            .post_init(self.setup_commands)
+            .build()
+        )
         
-        # Add error handler
-        app.add_error_handler(self.error_handler)
-        
-        # Add all handlers
+        # All handlers
         app.add_handler(CommandHandler("start", self.start))
         app.add_handler(CommandHandler("help", self.help_command))
         app.add_handler(CommandHandler("status", self.status_command))
@@ -936,20 +881,9 @@ Welcome {user.first_name}!
         app.add_handler(CallbackQueryHandler(self.button_handler))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
         
-        # Start bot
         logger.info("🤖 Bot started!")
-        app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
-
-
-# ============ MAIN ENTRY POINT ============
+        app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == '__main__':
-    # Python 3.14 compatible startup
-    try:
-        bot = InstagramReportBot()
-        bot.run()
-    except KeyboardInterrupt:
-        logger.info("Bot stopped by user")
-    except Exception as e:
-        logger.error(f"Fatal error: {e}")
-        sys.exit(1)
+    bot = InstagramReportBot()
+    bot.run()
